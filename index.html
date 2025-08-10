@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Playlist Automática</title>
+<style>
+  :root{--bg:#000;--text:#fff;--accent:#4de86b}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+  .wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:18px;padding:16px}
+  #timer{color:var(--accent);font-weight:700;font-size:20px}
+  .player{width:90%;max-width:1100px;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+  /* o player da API vai dentro desta div (id="player") */
+  #player{width:100%;height:100%}
+  .note{font-size:13px;color:#9fb3bb}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="timer">Tempo restante: 00:00</div>
+    <div class="player" aria-live="polite">
+      <div id="player"></div>
+    </div>
+    <div class="note">Autoplay: ativado (mudo). A cada vídeo o tempo é aleatório entre 1:30 e 2:05.</div>
+  </div>
+
+<script>
+/* ====== CONFIGURAÇÃO: vídeos já incluídos ====== */
+const VIDEO_LIST = [
+  { provider: 'youtube', id: 'hD9IsBTGeCo' }, // https://www.youtube.com/shorts/hD9IsBTGeCo
+  { provider: 'youtube', id: 'oiN35oKHxys' }  // https://www.youtube.com/watch?v=oiN35oKHxys
+];
+/* ============================================== */
+
+let player = null;
+let currentIndex = 0;
+let lastDuration = 0;
+let remainingSeconds = 0;
+let countdownInterval = null;
+
+function formatMMSS(sec){
+  if (sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function updateTimerUI(){
+  document.getElementById('timer').textContent = `Tempo restante: ${formatMMSS(remainingSeconds)}`;
+}
+
+function clearCountdown(){
+  if(countdownInterval){ clearInterval(countdownInterval); countdownInterval = null; }
+}
+
+/* gera duração aleatória entre min e max (evita repetir o mesmo valor consecutivo) */
+function getRandomDuration(min, max, last){
+  let v;
+  do {
+    v = Math.floor(Math.random() * (max - min + 1)) + min;
+  } while (v === last && (max - min) > 0);
+  return v;
+}
+
+/* inicia contagem regressiva visual */
+function startCountdown(seconds){
+  clearCountdown();
+  remainingSeconds = seconds;
+  updateTimerUI();
+  countdownInterval = setInterval(() => {
+    remainingSeconds--;
+    updateTimerUI();
+    if(remainingSeconds <= 0){
+      clearCountdown();
+      nextTrack();
+    }
+  }, 1000);
+}
+
+/* toca o índice i da playlist */
+function playIndex(i){
+  if(!VIDEO_LIST || VIDEO_LIST.length === 0) return;
+  if(i < 0) i = 0;
+  if(i >= VIDEO_LIST.length) i = 0;
+  currentIndex = i;
+
+  // escolhe duração aleatória entre 90 e 125 (1:30 - 2:05), evitando repetição imediata
+  const duration = getRandomDuration(90, 125, lastDuration);
+  lastDuration = duration;
+
+  // se player ainda não foi criado, cria com o vídeo atual
+  const id = VIDEO_LIST[currentIndex].id;
+  if(!player){
+    player = new YT.Player('player', {
+      height: '100%',
+      width: '100%',
+      videoId: id,
+      playerVars: {
+        autoplay: 1,
+        controls: 1,
+        mute: 1,
+        rel: 0,
+        modestbranding: 1,
+        playsinline: 1
+      },
+      events: {
+        onReady: function(e){
+          // garantir mudo e tocar
+          try{ e.target.mute(); }catch(e){}
+          try{ e.target.playVideo(); }catch(e){}
+          startCountdown(duration);
+        },
+        onStateChange: function(e){
+          // não usamos onEnd para avançar, controlamos por timer para obedecer duração fixa
+        }
+      }
+    });
+  } else {
+    // se já existe player, carrega o próximo vídeo e inicia contagem
+    try{ player.loadVideoById(id); player.mute(); player.playVideo(); }catch(e){}
+    startCountdown(duration);
+  }
+}
+
+/* avança para próxima faixa (loop) */
+function nextTrack(){
+  currentIndex = (currentIndex + 1) % VIDEO_LIST.length;
+  playIndex(currentIndex);
+}
+
+/* função chamada pela API do YouTube quando carregada */
+function onYouTubeIframeAPIReady(){
+  // Inicia a reprodução a partir do índice 0
+  playIndex(0);
+}
+
+/* insere o script da API do YouTube (não mexa) */
+(function loadYouTubeAPI(){
+  const tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(tag);
+})();
+
+/* limpeza caso usuário troque de aba / feche (boa prática) */
+window.addEventListener('beforeunload', () => {
+  clearCountdown();
+  if(player && typeof player.destroy === 'function') player.destroy();
+});
+</script>
+</body>
+</html>
